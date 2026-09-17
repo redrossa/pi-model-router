@@ -57,7 +57,7 @@ export async function pickModel(prompt: string, deps: PickModelDeps): Promise<Ro
   };
 
   if (!jev) {
-    return fallbackDecision("TYPESAFE_API_KEY not configured; routing disabled");
+    return fallbackDecision("no TypeSafe API key configured (run /router:login or set TYPESAFE_API_KEY); routing disabled");
   }
 
   let choice: string;

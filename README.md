@@ -29,9 +29,20 @@ third — without you having to `/model` switch by hand.
 
 ## Setup
 
+Start Pi, then run `/router:login` and paste your TypeSafe API key (get
+one at [https://typesafe.ai](https://typesafe.ai)) when prompted. The key is
+stored in Pi's own credential file (`~/.pi/agent/auth.json`), alongside your
+other provider logins — remove it later with `/logout`. No further setup is
+needed.
+
+For CI or non-interactive use, you can instead set the key as an environment
+variable:
+
 ```bash
-export TYPESAFE_API_KEY=sk-...   # required — get one at https://typesafe.ai
+export TYPESAFE_API_KEY=sk-...   # get one at https://typesafe.ai
 ```
+
+A key stored via `/router:login` takes precedence over `TYPESAFE_API_KEY`.
 
 Drop this repo (or its published package) into your Pi extensions path and
 it auto-loads. Pi discovers extensions placed under
@@ -72,9 +83,10 @@ enough.
 
 ## Commands
 
-- `/router` — show current config source, Jev status, and category → model map.
+- `/router` — show current config source, where the key is coming from, Jev status, and category → model map.
 - `/router test <prompt>` — dry-run classification for a prompt without sending it to the agent.
 - `/router reload` — re-read the criteria config from disk.
+- `/router:login` — store your TypeSafe API key in pi's credential storage (no env var needed).
 
 ## Project layout
 
