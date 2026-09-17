@@ -41,6 +41,7 @@ interface Harness {
   fire(event: string, eventArg: unknown): Promise<void>;
   runCommand(name: string, args: string): Promise<void>;
   setModelCalls: FakeModel[];
+  setThinkingLevelCalls: string[];
   notifications: Notification[];
   statuses: Map<string, string>;
   auth: Map<string, FakeCredential>;
@@ -49,11 +50,14 @@ interface Harness {
   registerProviderCalls: Array<{ id: string; config: unknown }>;
   setCurrentModel(model: FakeModel): void;
   currentModel(): FakeModel;
+  setCurrentThinking(level: string): void;
 }
 
 interface HarnessOptions {
   available: FakeModel[];
   initialModel: FakeModel;
+  initialThinkingLevel?: string;
+  clampThinkingTo?: string;
   storedKey?: string;
   hasUI?: boolean;
   inputResponses?: (string | undefined)[];
@@ -70,12 +74,14 @@ interface HarnessOptions {
  */
 function makeHarness(opts: HarnessOptions): Harness {
   let current = opts.initialModel;
+  let currentThinking = opts.initialThinkingLevel ?? "medium";
   const cwd = opts.cwd ?? mkdtempSync(join(ISOLATED_DIR, "proj-"));
   if (opts.userConfig !== undefined) {
     mkdirSync(join(cwd, ".pi"), { recursive: true });
     writeFileSync(join(cwd, ".pi", "pi-model-router.json"), JSON.stringify(opts.userConfig));
   }
   const setModelCalls: FakeModel[] = [];
+  const setThinkingLevelCalls: string[] = [];
   const notifications: Notification[] = [];
   const statuses = new Map<string, string>();
   const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
@@ -120,6 +126,11 @@ function makeHarness(opts: HarnessOptions): Harness {
       current = model;
       return true;
     },
+    getThinkingLevel: () => currentThinking,
+    setThinkingLevel: (level: string) => {
+      setThinkingLevelCalls.push(level);
+      currentThinking = opts.clampThinkingTo ?? level;
+    },
     registerCommand: (name: string, options: { handler: CommandHandler }) => {
       commands.set(name, options.handler);
     },
@@ -142,6 +153,7 @@ function makeHarness(opts: HarnessOptions): Harness {
       await handler(args, ctx as unknown as ExtensionContext);
     },
     setModelCalls,
+    setThinkingLevelCalls,
     notifications,
     statuses,
     auth,
@@ -153,6 +165,9 @@ function makeHarness(opts: HarnessOptions): Harness {
     },
     currentModel() {
       return current;
+    },
+    setCurrentThinking(level) {
+      currentThinking = level;
     },
   };
 }
@@ -247,6 +262,127 @@ test("agent_end does NOT restore when the user switched models mid-run", async (
 
   // Only the initial routing call — no restore, since the user moved off it.
   assert.equal(h.setModelCalls.length, 1);
+});
+
+test("before_agent_start applies the routed category's thinkingLevel", async () => {
+  const h = makeHarness({
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
+    initialThinkingLevel: "medium",
+    // Route to `coding` (the fallback category) with an explicit effort override.
+    userConfig: { categories: { coding: { thinkingLevel: "high" } } },
+  });
+
+  await h.fire("session_start", SESSION_START);
+  await h.fire("before_agent_start", BEFORE_AGENT_START);
+
+  assert.deepEqual(h.setThinkingLevelCalls, ["high"]);
+  assert.match(h.statuses.get("router") ?? "", /thinking: high/);
+});
+
+test("does not call setThinkingLevel when already at the category's level", async () => {
+  // Shipped `coding` (the fallback category) routes at thinking level "medium".
+  const h = makeHarness({
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
+    initialThinkingLevel: "medium",
+  });
+
+  await h.fire("session_start", SESSION_START);
+  await h.fire("before_agent_start", BEFORE_AGENT_START);
+
+  assert.equal(h.setThinkingLevelCalls.length, 0);
+});
+
+test("does not call setThinkingLevel when the routed category has no thinkingLevel", async () => {
+  const h = makeHarness({
+    available: [{ provider: "myprov", id: "my-model" }],
+    initialModel: INITIAL_MODEL,
+    initialThinkingLevel: "medium",
+    // A brand-new category has no inherited thinkingLevel; route to it via fallback.
+    userConfig: {
+      categories: { misc: { models: ["myprov/my-model"] } },
+      fallback: { category: "misc" },
+    },
+  });
+
+  await h.fire("session_start", SESSION_START);
+  await h.fire("before_agent_start", BEFORE_AGENT_START);
+
+  assert.equal(h.setModelCalls.length, 1, "the new category's model should still be routed");
+  assert.equal(h.setThinkingLevelCalls.length, 0);
+});
+
+test("agent_end restores the previous thinking level", async () => {
+  const h = makeHarness({
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
+    initialThinkingLevel: "medium",
+    userConfig: { categories: { coding: { thinkingLevel: "high" } } },
+  });
+
+  await h.fire("session_start", SESSION_START);
+  await h.fire("before_agent_start", BEFORE_AGENT_START);
+  await h.fire("agent_end", AGENT_END);
+
+  assert.deepEqual(h.setThinkingLevelCalls, ["high", "medium"]);
+});
+
+test("agent_end does NOT restore thinking level when the user changed it mid-run", async () => {
+  const h = makeHarness({
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
+    initialThinkingLevel: "medium",
+    userConfig: { categories: { coding: { thinkingLevel: "high" } } },
+  });
+
+  await h.fire("session_start", SESSION_START);
+  await h.fire("before_agent_start", BEFORE_AGENT_START);
+
+  h.setCurrentThinking("low");
+  await h.fire("agent_end", AGENT_END);
+
+  // Only the initial routing call — no restore, since the user moved off it.
+  assert.deepEqual(h.setThinkingLevelCalls, ["high"]);
+});
+
+test("thinking level is applied even when the model does not change", async () => {
+  const h = makeHarness({
+    available: [OPUS],
+    initialModel: OPUS,
+    initialThinkingLevel: "medium",
+    userConfig: { categories: { coding: { thinkingLevel: "high" } } },
+  });
+
+  await h.fire("session_start", SESSION_START);
+  await h.fire("before_agent_start", BEFORE_AGENT_START);
+
+  assert.equal(h.setModelCalls.length, 0);
+  assert.deepEqual(h.setThinkingLevelCalls, ["high"]);
+});
+
+test("restore uses the clamped thinking value", async () => {
+  const h = makeHarness({
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
+    initialThinkingLevel: "medium",
+    // Simulate pi clamping a requested xhigh down to high (unsupported by the model).
+    clampThinkingTo: "high",
+    userConfig: { categories: { coding: { thinkingLevel: "xhigh" } } },
+  });
+
+  await h.fire("session_start", SESSION_START);
+  await h.fire("before_agent_start", BEFORE_AGENT_START);
+  // Status must reflect the effective (clamped) level, i.e. the getThinkingLevel() read-back.
+  assert.match(h.statuses.get("router") ?? "", /thinking: high/);
+  await h.fire("agent_end", AGENT_END);
+
+  // The extension *requests* "xhigh" (first call arg), but reads back the clamped
+  // "high" via getThinkingLevel() and tracks that as routedThinking. Restore then
+  // correctly fires with the original "medium" — i.e. the second call. If the raw
+  // "xhigh" were tracked instead, the agent_end guard (getThinkingLevel() === routed)
+  // would not match and the restore would never fire, so this assertion discriminates.
+  assert.deepEqual(h.setThinkingLevelCalls, ["xhigh", "medium"]);
 });
 
 test("notifies and keeps current model when nothing is available", async () => {

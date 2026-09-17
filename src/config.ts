@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { RouterCriteria, CriteriaCategory } from "./types.js";
+import { THINKING_LEVELS } from "./types.js";
 
 const DEFAULT_CRITERIA_PATH = new URL("../config/default-criteria.json", import.meta.url);
 
@@ -27,6 +28,7 @@ function mergeCategory(base: CriteriaCategory | undefined, override: Partial<Cri
   return {
     description: override.description ?? base?.description ?? "",
     models: override.models ?? base?.models ?? [],
+    thinkingLevel: override.thinkingLevel ?? base?.thinkingLevel,
   };
 }
 
@@ -67,7 +69,16 @@ export function loadCriteria(projectDir: string): { criteria: RouterCriteria; so
   if (!userPath) return { criteria: base, sourcePath: null };
   try {
     const override = readJson(userPath) as Partial<RouterCriteria>;
-    return { criteria: mergeCriteria(base, override), sourcePath: userPath };
+    const merged = mergeCriteria(base, override);
+    for (const [name, category] of Object.entries(merged.categories)) {
+      if (category.thinkingLevel !== undefined && !THINKING_LEVELS.includes(category.thinkingLevel)) {
+        // Thrown inside the try so it is reported through the same "failed to parse <path>" wrapper as JSON errors.
+        throw new Error(
+          `invalid thinkingLevel "${String(category.thinkingLevel)}" for category "${name}" (expected one of ${THINKING_LEVELS.join(", ")})`,
+        );
+      }
+    }
+    return { criteria: merged, sourcePath: userPath };
   } catch (err) {
     throw new Error(`pi-model-router: failed to parse ${userPath}: ${(err as Error).message}`);
   }

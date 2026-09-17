@@ -6,11 +6,16 @@
  * Jev untouched (e.g. richer per-option guidance as an object/array, per the
  * TypeSafe Choice primitive spec).
  */
+export type RouterThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export const THINKING_LEVELS: readonly RouterThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
+
 export interface CriteriaCategory {
   /** Freeform description of what belongs in this category. String, object, or array. */
   description: unknown;
   /** Model ids (as configured in Pi / models.json), in priority order. First logged-in match wins. */
   models: string[];
+  /** Thinking/effort level to apply when this category wins. Clamped by pi to what the routed model supports. Omit to leave the user's current level untouched. */
+  thinkingLevel?: RouterThinkingLevel | undefined;
 }
 
 export interface RouterFallback {

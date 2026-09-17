@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { loadCriteria } from "./config.js";
 import { JevClient } from "./jev.js";
 import { hasAnyAvailableModel, pickModel } from "./router.js";
-import type { RouteDecision, RouterCriteria } from "./types.js";
+import type { RouteDecision, RouterCriteria, RouterThinkingLevel } from "./types.js";
 
 /**
  * pi-model-router
@@ -14,10 +14,13 @@ import type { RouteDecision, RouterCriteria } from "./types.js";
  *
  * Strategy: classify once per agent run in `before_agent_start` (one Jev
  * call, stable for the whole run including the tool-call loop) and switch
- * the active model with `pi.setModel()` before the agent loop starts. Pi's
- * `setModel()` also persists the choice as the default model in settings,
- * so on `agent_end` we switch back to the model that was active before
- * routing — unless the user changed models manually during the run.
+ * the active model with `pi.setModel()` before the agent loop starts. In the
+ * same step we also apply the winning category's configured thinking/effort
+ * level with `pi.setThinkingLevel()` (clamped by pi to what the routed model
+ * supports). Pi's `setModel()`/`setThinkingLevel()` also persist the choice as
+ * the new default in settings, so on `agent_end` we switch both back to the
+ * model and thinking level that were active before routing — unless the user
+ * changed them manually during the run.
  */
 
 /**
@@ -43,10 +46,11 @@ function sameModel(a: Model<Api> | undefined, b: Model<Api> | undefined): boolea
   return !!a && !!b && a.provider === b.provider && a.id === b.id;
 }
 
-function describe(d: RouteDecision): string {
-  return d.source === "jev"
+function describe(d: RouteDecision, thinking?: RouterThinkingLevel | undefined): string {
+  const base = d.source === "jev"
     ? `${d.category} → ${d.model} (confidence ${d.confidence.toFixed(2)})`
     : `${d.category} → ${d.model} (fallback: ${d.error ?? "unknown"})`;
+  return thinking !== undefined ? `${base} [thinking: ${thinking}]` : base;
 }
 
 /** Provider id under which the TypeSafe key is stored in pi's auth.json (~/.pi/agent/auth.json). */
@@ -111,6 +115,10 @@ export default function piModelRouter(pi: ExtensionAPI) {
   let restoreModel: Model<Api> | undefined;
   /** Model this run was routed to (used to detect manual /model changes mid-run). */
   let routedModel: Model<Api> | undefined;
+  /** Thinking level that was active before this run's routing changed it; restored on agent_end. */
+  let restoreThinking: RouterThinkingLevel | undefined;
+  /** Thinking level this run was actually routed to (read back post-clamp; used to detect manual changes mid-run). */
+  let routedThinking: RouterThinkingLevel | undefined;
 
   function loadInto(ctx: ExtensionContext): boolean {
     try {
@@ -181,7 +189,20 @@ export default function piModelRouter(pi: ExtensionAPI) {
       }
       routedModel = target;
     }
-    ctx.ui.setStatus("router", `router: ${describe(decision)}`);
+
+    const wantedThinking = criteria.categories[decision.category]?.thinkingLevel;
+    if (wantedThinking !== undefined) {
+      const currentThinking = pi.getThinkingLevel();
+      if (currentThinking !== wantedThinking) {
+        restoreThinking = currentThinking;
+        pi.setThinkingLevel(wantedThinking);
+        routedThinking = pi.getThinkingLevel(); // read back the clamped value, may differ from wantedThinking
+      }
+    }
+    ctx.ui.setStatus(
+      "router",
+      `router: ${describe(decision, wantedThinking !== undefined ? pi.getThinkingLevel() : undefined)}`,
+    );
   });
 
   pi.on("agent_end", async (_event, ctx) => {
@@ -189,9 +210,23 @@ export default function piModelRouter(pi: ExtensionAPI) {
     const routed = routedModel;
     restoreModel = undefined;
     routedModel = undefined;
+    const thinkToRestore = restoreThinking;
+    const thinkRouted = routedThinking;
+    restoreThinking = undefined;
+    routedThinking = undefined;
     // Only switch back if the user didn't manually change models during the run.
     if (toRestore && routed && sameModel(ctx.model, routed) && !sameModel(ctx.model, toRestore)) {
       await pi.setModel(toRestore);
+    }
+    // Restore thinking last: setModel() re-clamps the thinking level as a side effect.
+    // Only switch back if the user didn't manually change the level during the run.
+    if (
+      thinkToRestore !== undefined &&
+      thinkRouted !== undefined &&
+      pi.getThinkingLevel() === thinkRouted &&
+      thinkToRestore !== thinkRouted
+    ) {
+      pi.setThinkingLevel(thinkToRestore);
     }
   });
 
@@ -216,7 +251,8 @@ export default function piModelRouter(pi: ExtensionAPI) {
           const decision = await pickModel(prompt, { jev, criteria, isAvailable });
           ctx.ui.notify(
             `category=${decision.category} model=${decision.model} confidence=${decision.confidence.toFixed(2)} ` +
-              `source=${decision.source}${decision.error ? ` (${decision.error})` : ""}`,
+              `source=${decision.source}${decision.error ? ` (${decision.error})` : ""}` +
+              ` thinking=${criteria.categories[decision.category]?.thinkingLevel ?? "unchanged"}`,
             "info",
           );
         } catch (err) {
@@ -242,7 +278,7 @@ export default function piModelRouter(pi: ExtensionAPI) {
       const categories = Object.entries(criteria.categories)
         .map(([name, c]) => {
           const marks = c.models.map((m) => (isAvailable(m) ? `${m} ✓` : `${m} ✗`));
-          return `  ${name}: ${marks.join(", ")}`;
+          return `  ${name}${c.thinkingLevel ? ` (thinking: ${c.thinkingLevel})` : ""}: ${marks.join(", ")}`;
         })
         .join("\n");
       ctx.ui.notify(

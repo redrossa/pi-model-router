@@ -12,6 +12,7 @@
         "type": "object",
         "properties": {
           "description": {},
+          "thinkingLevel": { "type": "string", "enum": ["off", "minimal", "low", "medium", "high", "xhigh"] },
           "models": {
             "type": "array",
             "items": { "type": "string" },
