@@ -1,0 +1,21 @@
+{
+  "categories": {
+    "planning": {
+      "description": "Planning, complex reasoning, architecture decisions, brainstorming, tradeoff analysis.",
+      "models": ["fable-5.1", "astra"]
+    },
+    "coding": {
+      "description": "Writing, editing, refactoring, debugging code; implementing a spec.",
+      "models": ["deepseek-v4.1-flash", "sol", "opus"]
+    },
+    "research": {
+      "description": "Research, codebase exploration, reading/summarizing docs, 'how does X work' questions.",
+      "models": ["sonnet", "terra"]
+    },
+    "writing": {
+      "description": "Non-code prose: docs, commit messages, PR descriptions, changelog entries.",
+      "models": ["astra", "sonnet"]
+    }
+  },
+  "confidenceThreshold": 0.4
+}

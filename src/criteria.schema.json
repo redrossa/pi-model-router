@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "pi-model-router criteria config",
+  "description": "User override file: .pi/pi-model-router.json (project) or ~/.pi/agent/pi-model-router.json (global). Any subset of fields; categories merge with the shipped defaults by name.",
+  "type": "object",
+  "properties": {
+    "question": { "type": "string" },
+    "instructions": { "type": "string" },
+    "categories": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "description": {},
+          "models": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          }
+        }
+      }
+    },
+    "fallback": {
+      "type": "object",
+      "properties": {
+        "category": { "type": "string" },
+        "note": { "type": "string" }
+      }
+    },
+    "confidenceThreshold": { "type": "number", "minimum": 0, "maximum": 1 }
+  },
+  "additionalProperties": false
+}

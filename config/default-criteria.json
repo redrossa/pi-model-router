@@ -1,0 +1,24 @@
+{
+  "$schema": "../src/criteria.schema.json",
+  "question": "task_category",
+  "instructions": "Classify the user's coding-agent prompt into exactly one category based on the primary kind of work it is asking for.",
+  "categories": {
+    "planning": {
+      "description": "Planning, complex reasoning, architecture decisions, brainstorming, tradeoff analysis, open-ended design discussion. No code is being written yet.",
+      "models": ["fable-5.1", "astra"]
+    },
+    "coding": {
+      "description": "Writing, editing, refactoring, or debugging code; implementing a spec; fixing a bug; running/fixing tests.",
+      "models": ["deepseek-v4.1-flash", "sol", "opus"]
+    },
+    "research": {
+      "description": "Research, codebase exploration, reading/summarizing docs or source, answering 'how does X work' or 'where is Y defined' questions.",
+      "models": ["sonnet", "terra"]
+    }
+  },
+  "fallback": {
+    "category": "coding",
+    "note": "Used when Jev is unavailable, low-confidence, or returns a category with no configured/available model."
+  },
+  "confidenceThreshold": 0.34
+}

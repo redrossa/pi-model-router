@@ -1,0 +1,26 @@
+{
+  "name": "pi-model-router",
+  "version": "0.1.0",
+  "description": "Pi extension that classifies each prompt with TypeSafe's Jev and routes it to the model you're logged into that best fits the task.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "main": "src/extension.ts",
+  "pi": {
+    "extension": "src/extension.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/**/*.test.ts",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "*",
+    "@sinclair/typebox": "^0.32.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
