@@ -13,6 +13,11 @@ function firstAvailable(models: string[], isAvailable: (modelId: string) => bool
   return null;
 }
 
+/** True if at least one model ref in any category resolves via `isAvailable`. */
+export function hasAnyAvailableModel(criteria: RouterCriteria, isAvailable: (modelId: string) => boolean): boolean {
+  return Object.values(criteria.categories).some((cat) => firstAvailable(cat.models, isAvailable) !== null);
+}
+
 export interface PickModelDeps {
   jev: JevClient | null;
   criteria: RouterCriteria;

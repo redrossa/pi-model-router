@@ -20,12 +20,16 @@ third — without you having to `/model` switch by hand.
    tool-call loop) uses the picked model. Pi persists `setModel()` as your
    default, so when the run ends (`agent_end`) the extension switches back
    to the model you had before — unless you changed models manually
-   mid-run. Model references in criteria may be a bare id (`"astra"`) or
-   `"provider/id"` (`"anthropic/claude-sonnet-4-5"`).
+   mid-run. Model references in criteria may be a bare id
+   (`"claude-sonnet-5"`) or `"provider/id"` (`"anthropic/claude-sonnet-5"`).
+   Prefer `provider/id` — bare ids match the first available model with that
+   id across providers.
 4. If Jev is unreachable, times out, returns low confidence (below
    `confidenceThreshold`), or picks a category with no available model, the
    extension falls back to the configured `fallback.category`, then to any
-   category with an available model.
+   category with an available model. If **none** of the configured models
+   are available, you get a one-time warning at session start and the
+   extension leaves your current model alone (no Jev call is made).
 
 ## Setup
 
@@ -49,14 +53,23 @@ Drop this repo (or its published package) into your Pi extensions path and
 it auto-loads. Pi discovers extensions placed under
 `~/.pi/agent/extensions/` (global) or `.pi/extensions/` (project-local);
 for a quick test without installing, load it directly with
-`pi -e ./src/extension.ts`. No further config is required — a sensible
-default criteria map ships in `config/default-criteria.json`:
+`pi -e ./src/extension.ts`. A default criteria map ships in
+`config/default-criteria.json`. Its model lists reference models from pi's
+**built-in** registry for the `anthropic`, `openai-codex` and `deepseek`
+providers, so if you're logged into any of those it works out of the box:
 
-| category | goes to |
+| category | goes to (first available wins) |
 |---|---|
-| planning (reasoning, brainstorming, architecture) | `fable-5.1`, `astra` |
-| coding (implementation, debugging, refactors) | `deepseek-v4.1-flash`, `sol`, `opus` |
-| research (exploration, reading code/docs) | `sonnet`, `terra` |
+| planning (reasoning, brainstorming, architecture) | `anthropic/claude-fable-5-1`, `openai-codex/gpt-6-astra`, `deepseek/deepseek-v4-pro` |
+| coding (implementation, debugging, refactors) | `deepseek/deepseek-v4-flash`, `openai-codex/gpt-5.6-sol`, `anthropic/claude-opus-5` |
+| research (exploration, reading code/docs) | `anthropic/claude-sonnet-5`, `openai-codex/gpt-5.6-terra`, `deepseek/deepseek-v4-flash` |
+
+These lists are a starting point, not a recommendation — if you use other
+providers (OpenRouter, Ollama, …) or these ids have been renamed in your pi
+version, **none of them will resolve** and you'll see a warning at startup.
+Run `pi --list-models` to see what you're logged into, then put those ids
+(as `provider/id`) in your own config as described below. `/router` shows
+which entries resolve (✓/✗).
 
 ## Configuring your own criteria
 
@@ -70,8 +83,8 @@ name.
 ```jsonc
 {
   "categories": {
-    "coding": { "description": "...", "models": ["your-model-id"] },
-    "writing": { "description": "commit messages, docs, PR descriptions", "models": ["astra"] }
+    "coding": { "description": "...", "models": ["your-provider/your-model-id"] },
+    "writing": { "description": "commit messages, docs, PR descriptions", "models": ["openai-codex/gpt-6-astra"] }
   },
   "confidenceThreshold": 0.4
 }

@@ -2,7 +2,7 @@ import type { Api, Model } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { loadCriteria } from "./config.js";
 import { JevClient } from "./jev.js";
-import { pickModel } from "./router.js";
+import { hasAnyAvailableModel, pickModel } from "./router.js";
 import type { RouteDecision, RouterCriteria } from "./types.js";
 
 /**
@@ -21,9 +21,9 @@ import type { RouteDecision, RouterCriteria } from "./types.js";
  */
 
 /**
- * Model references in criteria may be a bare id ("astra") or "provider/id"
- * ("anthropic/claude-sonnet-4-5"). Bare ids match the first available model
- * with that id.
+ * Model references in criteria may be a bare id ("claude-sonnet-5") or
+ * "provider/id" ("anthropic/claude-sonnet-5"). Bare ids match the first
+ * available model with that id.
  */
 function matchesRef(model: Model<Api>, ref: string): boolean {
   const slash = ref.indexOf("/");
@@ -33,6 +33,10 @@ function matchesRef(model: Model<Api>, ref: string): boolean {
 
 function resolveModel(ctx: ExtensionContext, ref: string): Model<Api> | undefined {
   return ctx.modelRegistry.getAvailable().find((m) => matchesRef(m, ref));
+}
+
+function makeIsAvailable(ctx: ExtensionContext): (ref: string) => boolean {
+  return (ref: string) => resolveModel(ctx, ref) !== undefined;
 }
 
 function sameModel(a: Model<Api> | undefined, b: Model<Api> | undefined): boolean {
@@ -119,6 +123,17 @@ export default function piModelRouter(pi: ExtensionAPI) {
     }
   }
 
+  /** Warn if no configured model ref resolves to anything in pi's registry. */
+  function warnIfNothingResolves(ctx: ExtensionContext): void {
+    if (!criteria || hasAnyAvailableModel(criteria, makeIsAvailable(ctx))) return;
+    ctx.ui.notify(
+      `pi-model-router: none of the models in your criteria config (${sourcePath ?? "shipped defaults"}) are available in pi's model registry — routing is disabled until this is fixed. ` +
+        `Run "pi --list-models" for valid ids and add them as "provider/id" to .pi/pi-model-router.json (project) or ~/.pi/agent/pi-model-router.json (global). ` +
+        `Run /router to see which entries resolve (✓/✗).`,
+      "warning",
+    );
+  }
+
   pi.on("session_start", async (_event, ctx) => {
     if (!loadInto(ctx)) return;
     await syncJev(ctx);
@@ -129,12 +144,18 @@ export default function piModelRouter(pi: ExtensionAPI) {
         "warning",
       );
     }
+    warnIfNothingResolves(ctx);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     if (!criteria) return;
     await syncJev(ctx);
-    const isAvailable = (ref: string) => resolveModel(ctx, ref) !== undefined;
+    const isAvailable = makeIsAvailable(ctx);
+
+    if (!hasAnyAvailableModel(criteria, isAvailable)) {
+      ctx.ui.setStatus("router", "router: disabled — no configured model is available (see /router)");
+      return;
+    }
 
     let decision: RouteDecision;
     try {
@@ -178,7 +199,7 @@ export default function piModelRouter(pi: ExtensionAPI) {
     description: "Inspect or test pi-model-router's routing config",
     handler: async (args, ctx) => {
       const [sub, ...rest] = args.trim().split(/\s+/).filter(Boolean);
-      const isAvailable = (ref: string) => resolveModel(ctx, ref) !== undefined;
+      const isAvailable = makeIsAvailable(ctx);
 
       if (sub === "test") {
         const prompt = rest.join(" ");
@@ -207,6 +228,7 @@ export default function piModelRouter(pi: ExtensionAPI) {
       if (sub === "reload") {
         if (loadInto(ctx)) {
           ctx.ui.notify(`pi-model-router: reloaded criteria from ${sourcePath ?? "defaults"}`, "info");
+          warnIfNothingResolves(ctx);
         }
         return;
       }

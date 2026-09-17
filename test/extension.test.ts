@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import piModelRouter from "../src/extension.js";
 
@@ -8,10 +11,23 @@ import piModelRouter from "../src/extension.js";
 delete process.env.TYPESAFE_API_KEY;
 delete process.env.TYPESAFE_API_BASE;
 
+// Isolate from the developer's real user config and the repo's own untracked
+// `.pi/pi-model-router.json`: loadCriteria looks in ctx.cwd (which the harness
+// points at a fresh temp dir) and ~/.pi/agent/pi-model-router.json via
+// os.homedir(), which honors $HOME on POSIX.
+const ISOLATED_DIR = mkdtempSync(join(tmpdir(), "pi-model-router-test-"));
+process.env.HOME = ISOLATED_DIR;
+
 interface FakeModel {
   provider: string;
   id: string;
 }
+
+/**
+ * Deliberately NOT one of the shipped default models, so restore-tracking
+ * assertions are unambiguous.
+ */
+const INITIAL_MODEL: FakeModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
 
 interface Notification {
   message: string;
@@ -41,6 +57,8 @@ interface HarnessOptions {
   storedKey?: string;
   hasUI?: boolean;
   inputResponses?: (string | undefined)[];
+  userConfig?: Record<string, unknown>;
+  cwd?: string;
 }
 
 /**
@@ -52,6 +70,11 @@ interface HarnessOptions {
  */
 function makeHarness(opts: HarnessOptions): Harness {
   let current = opts.initialModel;
+  const cwd = opts.cwd ?? mkdtempSync(join(ISOLATED_DIR, "proj-"));
+  if (opts.userConfig !== undefined) {
+    mkdirSync(join(cwd, ".pi"), { recursive: true });
+    writeFileSync(join(cwd, ".pi", "pi-model-router.json"), JSON.stringify(opts.userConfig));
+  }
   const setModelCalls: FakeModel[] = [];
   const notifications: Notification[] = [];
   const statuses = new Map<string, string>();
@@ -64,7 +87,7 @@ function makeHarness(opts: HarnessOptions): Harness {
   const registerProviderCalls: Array<{ id: string; config: unknown }> = [];
 
   const ctx = {
-    cwd: process.cwd(),
+    cwd,
     hasUI: opts.hasUI ?? true,
     get model(): FakeModel {
       return current;
@@ -143,8 +166,11 @@ const BEFORE_AGENT_START = {
 };
 const AGENT_END = { type: "agent_end", messages: [] };
 
+/** A resolvable model from the shipped `coding` list (used to drive routing). */
+const OPUS = { provider: "anthropic", id: "claude-opus-5" };
+
 test("registers the typesafe credential-only provider on load", () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL });
+  const h = makeHarness({ available: [], initialModel: INITIAL_MODEL });
   assert.equal(h.registerProviderCalls.length, 1);
   assert.equal(h.registerProviderCalls[0]?.id, "typesafe");
   assert.deepEqual(h.registerProviderCalls[0]?.config, { name: "TypeSafe (pi-model-router)" });
@@ -152,15 +178,15 @@ test("registers the typesafe credential-only provider on load", () => {
 
 test("before_agent_start switches to the first available fallback model", async () => {
   const h = makeHarness({
-    available: [{ provider: "openai", id: "opus" }],
-    initialModel: { provider: "anthropic", id: "sonnet" },
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
   });
 
   await h.fire("session_start", SESSION_START);
   await h.fire("before_agent_start", BEFORE_AGENT_START);
 
   assert.equal(h.setModelCalls.length, 1);
-  assert.equal(h.setModelCalls[0]?.id, "opus");
+  assert.equal(h.setModelCalls[0]?.id, "claude-opus-5");
   assert.ok(h.statuses.has("router"));
 });
 
@@ -170,7 +196,8 @@ test("disambiguates provider/id refs (first match wins)", async () => {
       { provider: "openai", id: "opus" },
       { provider: "other", id: "opus" },
     ],
-    initialModel: { provider: "anthropic", id: "sonnet" },
+    initialModel: INITIAL_MODEL,
+    userConfig: { categories: { coding: { models: ["opus"] } } },
   });
 
   await h.fire("session_start", SESSION_START);
@@ -182,8 +209,8 @@ test("disambiguates provider/id refs (first match wins)", async () => {
 
 test("does not call setModel when already on the routed model", async () => {
   const h = makeHarness({
-    available: [{ provider: "openai", id: "opus" }],
-    initialModel: { provider: "openai", id: "opus" },
+    available: [OPUS],
+    initialModel: OPUS,
   });
 
   await h.fire("session_start", SESSION_START);
@@ -194,8 +221,8 @@ test("does not call setModel when already on the routed model", async () => {
 
 test("agent_end restores the previous model", async () => {
   const h = makeHarness({
-    available: [{ provider: "openai", id: "opus" }],
-    initialModel: { provider: "anthropic", id: "sonnet" },
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
   });
 
   await h.fire("session_start", SESSION_START);
@@ -203,19 +230,19 @@ test("agent_end restores the previous model", async () => {
   await h.fire("agent_end", AGENT_END);
 
   assert.equal(h.setModelCalls.length, 2);
-  assert.equal(h.setModelCalls[1]?.id, "sonnet");
+  assert.equal(h.setModelCalls[1]?.id, "claude-sonnet-4-5");
 });
 
 test("agent_end does NOT restore when the user switched models mid-run", async () => {
   const h = makeHarness({
-    available: [{ provider: "openai", id: "opus" }],
-    initialModel: { provider: "anthropic", id: "sonnet" },
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
   });
 
   await h.fire("session_start", SESSION_START);
   await h.fire("before_agent_start", BEFORE_AGENT_START);
 
-  h.setCurrentModel({ provider: "anthropic", id: "haiku" });
+  h.setCurrentModel({ provider: "anthropic", id: "claude-haiku-4-5" });
   await h.fire("agent_end", AGENT_END);
 
   // Only the initial routing call — no restore, since the user moved off it.
@@ -225,17 +252,25 @@ test("agent_end does NOT restore when the user switched models mid-run", async (
 test("notifies and keeps current model when nothing is available", async () => {
   const h = makeHarness({
     available: [],
-    initialModel: { provider: "anthropic", id: "sonnet" },
+    initialModel: INITIAL_MODEL,
+    storedKey: "sk-x",
   });
+  const fetchStub = stubFetch();
+  try {
+    await h.fire("session_start", SESSION_START);
+    await h.fire("before_agent_start", BEFORE_AGENT_START);
 
-  await h.fire("session_start", SESSION_START);
-  await h.fire("before_agent_start", BEFORE_AGENT_START);
-
-  assert.equal(h.setModelCalls.length, 0);
-  const warning = h.notifications.find(
-    (n) => n.type === "warning" && n.message.includes("no configured model is available"),
-  );
-  assert.ok(warning, `expected a warning notification, got: ${JSON.stringify(h.notifications)}`);
+    assert.equal(h.setModelCalls.length, 0);
+    const warning = h.notifications.find(
+      (n) => n.type === "warning" && n.message.includes("none of the models") && n.message.includes("pi --list-models"),
+    );
+    assert.ok(warning, `expected a warning notification, got: ${JSON.stringify(h.notifications)}`);
+    assert.match(h.statuses.get("router") ?? "", /disabled/);
+    // The short-circuit must skip Jev's network call entirely, even with a key.
+    assert.equal(fetchStub.calls.length, 0);
+  } finally {
+    fetchStub.restore();
+  }
 });
 
 /**
@@ -275,10 +310,8 @@ function stubFetch(answer?: { choice: string; confidence: number }): {
   };
 }
 
-const FAKE_INITIAL = { provider: "anthropic", id: "sonnet" };
-
 test("no key anywhere: warns on session_start and never calls fetch", async () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL });
+  const h = makeHarness({ available: [], initialModel: INITIAL_MODEL });
   const fetchStub = stubFetch();
   try {
     await h.fire("session_start", SESSION_START);
@@ -292,7 +325,7 @@ test("no key anywhere: warns on session_start and never calls fetch", async () =
 });
 
 test("stored key only: no missing-key warning and routes with the stored key", async () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL, storedKey: "sk-stored" });
+  const h = makeHarness({ available: [OPUS], initialModel: INITIAL_MODEL, storedKey: "sk-stored" });
   const fetchStub = stubFetch();
   try {
     await h.fire("session_start", SESSION_START);
@@ -310,7 +343,7 @@ test("stored key only: no missing-key warning and routes with the stored key", a
 
 test("env key only: routes with the env var key", async () => {
   process.env.TYPESAFE_API_KEY = "sk-env";
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL });
+  const h = makeHarness({ available: [OPUS], initialModel: INITIAL_MODEL });
   const fetchStub = stubFetch();
   try {
     await h.fire("session_start", SESSION_START);
@@ -325,7 +358,7 @@ test("env key only: routes with the env var key", async () => {
 
 test("stored key takes precedence over the env var", async () => {
   process.env.TYPESAFE_API_KEY = "sk-env";
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL, storedKey: "sk-stored" });
+  const h = makeHarness({ available: [OPUS], initialModel: INITIAL_MODEL, storedKey: "sk-stored" });
   const fetchStub = stubFetch();
   try {
     await h.fire("session_start", SESSION_START);
@@ -339,7 +372,7 @@ test("stored key takes precedence over the env var", async () => {
 });
 
 test("key removed after session_start: no fetch on before_agent_start", async () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL, storedKey: "sk-stored" });
+  const h = makeHarness({ available: [OPUS], initialModel: INITIAL_MODEL, storedKey: "sk-stored" });
   const fetchStub = stubFetch();
   try {
     await h.fire("session_start", SESSION_START);
@@ -352,7 +385,7 @@ test("key removed after session_start: no fetch on before_agent_start", async ()
 });
 
 test("/router status reports where the key comes from", async () => {
-  const stored = makeHarness({ available: [], initialModel: FAKE_INITIAL, storedKey: "sk-x" });
+  const stored = makeHarness({ available: [], initialModel: INITIAL_MODEL, storedKey: "sk-x" });
   await stored.fire("session_start", SESSION_START);
   await stored.runCommand("router", "");
   const storedText = stored.notifications.map((n) => n.message).join("\n");
@@ -360,7 +393,7 @@ test("/router status reports where the key comes from", async () => {
 
   process.env.TYPESAFE_API_KEY = "sk-env";
   try {
-    const env = makeHarness({ available: [], initialModel: FAKE_INITIAL });
+    const env = makeHarness({ available: [], initialModel: INITIAL_MODEL });
     await env.fire("session_start", SESSION_START);
     await env.runCommand("router", "");
     const envText = env.notifications.map((n) => n.message).join("\n");
@@ -369,9 +402,59 @@ test("/router status reports where the key comes from", async () => {
     delete process.env.TYPESAFE_API_KEY;
   }
 
-  const none = makeHarness({ available: [], initialModel: FAKE_INITIAL });
+  const none = makeHarness({ available: [], initialModel: INITIAL_MODEL });
   await none.fire("session_start", SESSION_START);
   await none.runCommand("router", "");
   const noneText = none.notifications.map((n) => n.message).join("\n");
   assert.ok(noneText.includes("disabled"), `none status was: ${noneText}`);
+});
+
+test("warns when no configured model resolves at session_start", async () => {
+  const h = makeHarness({ available: [], initialModel: INITIAL_MODEL });
+
+  await h.fire("session_start", SESSION_START);
+
+  const warning = h.notifications.find(
+    (n) => n.type === "warning" && n.message.includes("none of the models") && n.message.includes("pi --list-models"),
+  );
+  assert.ok(warning, `expected a nothing-resolves warning, got: ${JSON.stringify(h.notifications)}`);
+});
+
+test("warns again on /router reload when nothing resolves", async () => {
+  const h = makeHarness({ available: [], initialModel: INITIAL_MODEL });
+
+  await h.fire("session_start", SESSION_START);
+  h.notifications.length = 0;
+
+  await h.runCommand("router", "reload");
+
+  const warnings = h.notifications.filter(
+    (n) => n.type === "warning" && n.message.includes("none of the models") && n.message.includes("pi --list-models"),
+  );
+  assert.equal(warnings.length, 1, `expected exactly one warning, got: ${JSON.stringify(h.notifications)}`);
+});
+
+test("no nothing-resolves warning when at least one model is available", async () => {
+  const h = makeHarness({ available: [OPUS], initialModel: INITIAL_MODEL });
+
+  await h.fire("session_start", SESSION_START);
+
+  assert.ok(
+    !h.notifications.some((n) => n.message.includes("none of the models")),
+    `unexpected nothing-resolves warning: ${JSON.stringify(h.notifications)}`,
+  );
+});
+
+test("user override in <cwd>/.pi/pi-model-router.json is honoured", async () => {
+  const h = makeHarness({
+    userConfig: { categories: { coding: { models: ["myprov/my-model"] } } },
+    available: [{ provider: "myprov", id: "my-model" }],
+    initialModel: INITIAL_MODEL,
+  });
+
+  await h.fire("session_start", SESSION_START);
+  await h.fire("before_agent_start", BEFORE_AGENT_START);
+
+  assert.equal(h.setModelCalls.length, 1);
+  assert.equal(h.setModelCalls[0]?.id, "my-model");
 });

@@ -1,9 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickModel } from "../src/router.js";
-import { loadDefaultCriteria } from "../src/config.js";
+import { hasAnyAvailableModel, pickModel } from "../src/router.js";
 import type { JevClient } from "../src/jev.js";
-import type { JevChoiceAnswer } from "../src/types.js";
+import type { JevChoiceAnswer, RouterCriteria } from "../src/types.js";
+
+const FIXTURE: RouterCriteria = {
+  question: "task_category",
+  instructions: "test fixture",
+  categories: {
+    planning: { description: "planning work", models: ["fable", "astra"] },
+    coding: { description: "coding work", models: ["flash", "sol", "opus"] },
+    research: { description: "research work", models: ["sonnet", "terra"] },
+  },
+  fallback: { category: "coding" },
+  confidenceThreshold: 0.34,
+};
 
 function fakeJev(answer: JevChoiceAnswer | Error): JevClient {
   return {
@@ -15,7 +26,7 @@ function fakeJev(answer: JevChoiceAnswer | Error): JevClient {
 }
 
 test("routes to the winning category's first available model", async () => {
-  const criteria = loadDefaultCriteria();
+  const criteria = FIXTURE;
   const decision = await pickModel("plan out the architecture", {
     jev: fakeJev({ type: "choice", choice: "planning", confidence: 0.9, probabilities: { planning: 0.9 } }),
     criteria,
@@ -27,7 +38,7 @@ test("routes to the winning category's first available model", async () => {
 });
 
 test("skips unavailable models in priority order", async () => {
-  const criteria = loadDefaultCriteria();
+  const criteria = FIXTURE;
   const decision = await pickModel("fix this bug", {
     jev: fakeJev({ type: "choice", choice: "coding", confidence: 0.8, probabilities: {} }),
     criteria,
@@ -37,7 +48,7 @@ test("skips unavailable models in priority order", async () => {
 });
 
 test("falls back on low confidence", async () => {
-  const criteria = loadDefaultCriteria();
+  const criteria = FIXTURE;
   const decision = await pickModel("hmm", {
     jev: fakeJev({ type: "choice", choice: "research", confidence: 0.1, probabilities: {} }),
     criteria,
@@ -48,7 +59,7 @@ test("falls back on low confidence", async () => {
 });
 
 test("falls back on Jev error", async () => {
-  const criteria = loadDefaultCriteria();
+  const criteria = FIXTURE;
   const decision = await pickModel("anything", {
     jev: fakeJev(new Error("timeout")),
     criteria,
@@ -59,7 +70,7 @@ test("falls back on Jev error", async () => {
 });
 
 test("falls back to null jev client (no api key)", async () => {
-  const criteria = loadDefaultCriteria();
+  const criteria = FIXTURE;
   const decision = await pickModel("anything", {
     jev: null,
     criteria,
@@ -69,7 +80,7 @@ test("falls back to null jev client (no api key)", async () => {
 });
 
 test("cascades to any available category if fallback category is also unavailable", async () => {
-  const criteria = loadDefaultCriteria();
+  const criteria = FIXTURE;
   const decision = await pickModel("anything", {
     jev: fakeJev(new Error("down")),
     criteria,
@@ -80,8 +91,16 @@ test("cascades to any available category if fallback category is also unavailabl
 });
 
 test("throws when nothing is available anywhere", async () => {
-  const criteria = loadDefaultCriteria();
+  const criteria = FIXTURE;
   await assert.rejects(
     pickModel("anything", { jev: fakeJev(new Error("down")), criteria, isAvailable: () => false }),
   );
+});
+
+test("hasAnyAvailableModel is false when nothing resolves", () => {
+  assert.equal(hasAnyAvailableModel(FIXTURE, () => false), false);
+});
+
+test("hasAnyAvailableModel is true when any category resolves", () => {
+  assert.equal(hasAnyAvailableModel(FIXTURE, (id) => id === "terra"), true);
 });
