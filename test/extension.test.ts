@@ -336,6 +336,8 @@ test("stored key only: no missing-key warning and routes with the stored key", a
     await h.fire("before_agent_start", BEFORE_AGENT_START);
     assert.equal(fetchStub.calls.length, 1);
     assert.equal(fetchStub.calls[0]?.authorization, "Bearer sk-stored");
+    // Real endpoint per https://api.typesafe.ai/openapi.json — `/v1/answer` 404s.
+    assert.equal(fetchStub.calls[0]?.url, "https://api.typesafe.ai/v1/systemone");
   } finally {
     fetchStub.restore();
   }

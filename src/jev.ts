@@ -35,7 +35,8 @@ export class JevClient {
     }
 
     try {
-      const res = await fetch(`${this.apiBase}/answer`, {
+      // POST /v1/systemone per https://api.typesafe.ai/openapi.json
+      const res = await fetch(`${this.apiBase}/systemone`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
