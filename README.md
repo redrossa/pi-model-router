@@ -15,10 +15,13 @@ third — without you having to `/model` switch by hand.
 2. Jev returns a category pick with a confidence score. The extension maps
    that category to a priority-ordered list of model ids and picks the first
    one you're actually logged into.
-3. On every `before_provider_request` for that agent run, the extension
-   rewrites the outgoing model field to the picked model. It does **not**
-   call `pi.setModel()`, so your default model in `settings.json` is never
-   touched — routing is purely per-turn.
+3. Still inside `before_agent_start`, the extension switches the active
+   model with `pi.setModel()` so the whole agent run (including any
+   tool-call loop) uses the picked model. Pi persists `setModel()` as your
+   default, so when the run ends (`agent_end`) the extension switches back
+   to the model you had before — unless you changed models manually
+   mid-run. Model references in criteria may be a bare id (`"astra"`) or
+   `"provider/id"` (`"anthropic/claude-sonnet-4-5"`).
 4. If Jev is unreachable, times out, returns low confidence (below
    `confidenceThreshold`), or picks a category with no available model, the
    extension falls back to the configured `fallback.category`, then to any
@@ -31,8 +34,11 @@ export TYPESAFE_API_KEY=sk-...   # required — get one at https://typesafe.ai
 ```
 
 Drop this repo (or its published package) into your Pi extensions path and
-it auto-loads. No further config is required — a sensible default criteria
-map ships in `config/default-criteria.json`:
+it auto-loads. Pi discovers extensions placed under
+`~/.pi/agent/extensions/` (global) or `.pi/extensions/` (project-local);
+for a quick test without installing, load it directly with
+`pi -e ./src/extension.ts`. No further config is required — a sensible
+default criteria map ships in `config/default-criteria.json`:
 
 | category | goes to |
 |---|---|

@@ -7,14 +7,16 @@
   "license": "MIT",
   "main": "src/extension.ts",
   "pi": {
-    "extension": "src/extension.ts"
+    "extensions": ["src/extension.ts"]
   },
+  "keywords": ["pi-package"],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/**/*.test.ts",
     "lint": "tsc --noEmit"
   },
   "devDependencies": {
+    "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
     "@sinclair/typebox": "^0.32.0",
     "tsx": "^4.19.0",
