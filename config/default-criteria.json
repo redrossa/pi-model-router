@@ -4,16 +4,20 @@
   "instructions": "Classify the user's coding-agent prompt into exactly one category based on the primary kind of work it is asking for.",
   "categories": {
     "planning": {
-      "description": "Planning, complex reasoning, architecture decisions, brainstorming, tradeoff analysis, open-ended design discussion. No code is being written yet.",
+      "description": "Planning, complex reasoning, architecture decisions, brainstorming, tradeoff analysis, open-ended design discussion about what to build or how. No code is being written yet, and the output is a decision or plan rather than a finished document.",
       "models": ["anthropic/claude-fable-5-1", "openai-codex/gpt-6-astra", "deepseek/deepseek-v4-pro"]
     },
     "coding": {
-      "description": "Writing, editing, refactoring, or debugging code; implementing a spec; fixing a bug; running/fixing tests.",
+      "description": "Implementing, editing, refactoring, or debugging source code; implementing a spec; fixing a bug; running/fixing tests. The deliverable is code.",
       "models": ["deepseek/deepseek-v4-flash", "openai-codex/gpt-5.6-sol", "anthropic/claude-opus-5"]
     },
     "research": {
-      "description": "Research, codebase exploration, reading/summarizing docs or source, answering 'how does X work' or 'where is Y defined' questions.",
+      "description": "Research and codebase exploration: reading existing source or docs to understand them, answering 'how does X work' or 'where is Y defined' questions. The goal is understanding, not producing a document.",
       "models": ["anthropic/claude-sonnet-5", "openai-codex/gpt-5.6-terra", "deepseek/deepseek-v4-flash"]
+    },
+    "writing": {
+      "description": "Producing or editing prose, not code: README and other Markdown/docs files, changelogs, code comments and docstrings, commit messages, PR descriptions, explanatory write-ups. The deliverable is text for humans to read. Not architecture/planning discussion (planning), not implementing or fixing code (coding), not investigating how existing code works (research).",
+      "models": ["anthropic/claude-fable-5-1", "openai-codex/gpt-6-astra", "deepseek/deepseek-v4-pro"]
     }
   },
   "fallback": {

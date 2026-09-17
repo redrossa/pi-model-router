@@ -4,7 +4,8 @@ A [Pi](https://pi.dev) extension that classifies every prompt you send with
 [TypeSafe's Jev](https://docs.typesafe.ai) and routes the turn to whichever
 model you're logged into that best fits the task — planning/brainstorming to
 one model, coding implementation to another, research/exploration to a
-third — without you having to `/model` switch by hand.
+third, docs/prose writing to a fourth — without you having to `/model`
+switch by hand.
 
 ## How it works
 
@@ -63,6 +64,7 @@ providers, so if you're logged into any of those it works out of the box:
 | planning (reasoning, brainstorming, architecture) | `anthropic/claude-fable-5-1`, `openai-codex/gpt-6-astra`, `deepseek/deepseek-v4-pro` |
 | coding (implementation, debugging, refactors) | `deepseek/deepseek-v4-flash`, `openai-codex/gpt-5.6-sol`, `anthropic/claude-opus-5` |
 | research (exploration, reading code/docs) | `anthropic/claude-sonnet-5`, `openai-codex/gpt-5.6-terra`, `deepseek/deepseek-v4-flash` |
+| writing (README/docs/Markdown, changelogs, comments, commit messages) | `anthropic/claude-fable-5-1`, `openai-codex/gpt-6-astra`, `deepseek/deepseek-v4-pro` |
 
 These lists are a starting point, not a recommendation — if you use other
 providers (OpenRouter, Ollama, …) or these ids have been renamed in your pi
@@ -84,7 +86,7 @@ name.
 {
   "categories": {
     "coding": { "description": "...", "models": ["your-provider/your-model-id"] },
-    "writing": { "description": "commit messages, docs, PR descriptions", "models": ["openai-codex/gpt-6-astra"] }
+    "devops": { "description": "shell, CI, Docker, deployment tasks", "models": ["openai-codex/gpt-6-astra"] }
   },
   "confidenceThreshold": 0.4
 }

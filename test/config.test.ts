@@ -16,10 +16,18 @@ test("merges user category overrides without dropping siblings", () => {
 test("adds new categories via override", () => {
   const base = loadDefaultCriteria();
   const merged = mergeCriteria(base, {
-    categories: { writing: { description: "docs", models: ["openai-codex/gpt-6-astra"] } },
+    categories: { devops: { description: "shell, CI, Docker", models: ["openai-codex/gpt-6-astra"] } },
   });
-  assert.ok(merged.categories.writing);
+  assert.ok(merged.categories.devops);
   assert.equal(Object.keys(merged.categories).length, Object.keys(base.categories).length + 1);
+});
+
+test("shipped defaults route writing/docs to the same model class as planning", () => {
+  const criteria = loadDefaultCriteria();
+  const writing = criteria.categories.writing;
+  assert.ok(writing, "shipped defaults must include a 'writing' category");
+  assert.deepEqual(writing.models.slice(0, 2), ["anthropic/claude-fable-5-1", "openai-codex/gpt-6-astra"]);
+  assert.deepEqual(writing.models, criteria.categories.planning?.models);
 });
 
 test("overrides top-level fields", () => {
