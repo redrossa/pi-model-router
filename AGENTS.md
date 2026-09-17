@@ -7,8 +7,9 @@ Guidance for AI coding agents working in this repository.
 A [Pi](https://pi.dev) extension. On every agent run it classifies the user's
 prompt with [TypeSafe's Jev](https://docs.typesafe.ai), maps the resulting
 category to a priority-ordered list of model ids, and switches the active
-model with `pi.setModel()` before the agent loop starts. It restores the
-previous model on `agent_end`.
+model with `pi.setModel()` before the agent loop starts — plus the category's
+optional thinking/effort level via `pi.setThinkingLevel()`. It restores both
+previous values on `agent_end`.
 
 ## Commands
 
@@ -24,12 +25,12 @@ linter beyond `tsc`. Node >= 20.
 
 | Path | Responsibility |
 |---|---|
-| `src/extension.ts` | Pi wiring: hooks (`session_start`, `before_agent_start`, `agent_end`), provider registration, `/router` command, model switch/restore. Side effects live here. |
-| `src/router.ts` | `pickModel()` — the routing decision. Pure: all I/O is injected via deps. |
+| `src/extension.ts` | Pi wiring: hooks (`session_start`, `before_agent_start`, `agent_end`), provider registration, `/router` command, model + thinking-level switch/restore. Side effects live here. |
+| `src/router.ts` | `pickModel()` — the routing decision. Pure: all I/O is injected via deps. Model-only; knows nothing about thinking levels. |
 | `src/jev.ts` | `JevClient` — HTTP call to Jev's `Choice` primitive. |
-| `src/config.ts` | Loads shipped defaults + user override, deep-merges. |
-| `src/types.ts` | `RouterCriteria`, `RouteDecision`, etc. |
-| `config/default-criteria.json` | Shipped categories/models. |
+| `src/config.ts` | Loads shipped defaults + user override, deep-merges, validates `thinkingLevel`. |
+| `src/types.ts` | `RouterCriteria`, `RouterThinkingLevel`/`THINKING_LEVELS`, `RouteDecision`, etc. |
+| `config/default-criteria.json` | Shipped categories, thinking levels, and model lists. |
 | `src/criteria.schema.json` | JSON Schema for user override files. |
 | `test/` | `router.test.ts` (pure logic), `config.test.ts` (merge/lookup), `extension.test.ts` (fake ExtensionAPI harness). |
 
@@ -55,6 +56,23 @@ always non-fatal and must degrade to "use the current model".
 `RouteDecision.source` is `"jev"` only when Jev's own pick was used; every
 fallback reports `source: "fallback"` (the `"single-candidate"` variant is
 declared in `src/types.ts` but not currently produced).
+
+## Thinking level is applied, not routed
+
+`pickModel()` and `RouteDecision` are **model-only** — the cascade above has no
+thinking-level involvement, and `test/router.test.ts` has no thinking-level
+cases. A category's optional `thinkingLevel` is applied in `src/extension.ts`
+*after* the model switch, in the same `before_agent_start`:
+
+- Omitting `thinkingLevel` leaves the user's current level untouched; it is
+  never reset to a default.
+- The level is applied even when the routed model equals the current model, so
+  a category can change effort without changing model.
+- `pi.setThinkingLevel()` **clamps** to what the routed model supports. Track
+  the value read back from `pi.getThinkingLevel()`, not the value requested —
+  the `agent_end` guard compares against reality, not intent.
+- `agent_end` restores the pre-run level only when the user hasn't changed it
+  mid-run, and restores the **model before the level** (see Gotchas).
 
 ## Conventions
 
@@ -87,9 +105,12 @@ declared in `src/types.ts` but not currently produced).
   records `setModel` calls, notifications, and statuses, and isolates
   `$HOME` and `TYPESAFE_API_KEY`. Extend the harness rather than mocking
   ad-hoc. The extension only touches `ctx.model`, `ctx.modelRegistry`,
-  `ctx.ui.notify`, `ctx.ui.setStatus`, and `pi.setModel`.
-- `test/config.test.ts` exercises the merge/lookup order; `test/router.test.ts`
-  covers the cascade.
+  `ctx.ui.notify`, `ctx.ui.setStatus`, `pi.setModel`, and
+  `pi.getThinkingLevel`/`pi.setThinkingLevel`.
+- `test/config.test.ts` exercises the merge/lookup order and `thinkingLevel`
+  validation; `test/router.test.ts` covers the cascade; `test/extension.test.ts`
+  covers thinking-level apply/no-op/no-config/restore/mid-run-override/
+  model-unchanged/clamped-value cases.
 
 ## Config layering
 
@@ -101,10 +122,14 @@ user file found in this order:
 3. `<project>/pi-model-router.json`
 4. `~/.pi/agent/pi-model-router.json`
 
-Merge semantics: per category, only `description` and `models` are merged
-(override wins per field); top-level `question`, `instructions`, `fallback`,
-and `confidenceThreshold` are replaced. Unknown categories are added. Keep
-`mergeCriteria()` and `src/criteria.schema.json` in sync when adding fields.
+Merge semantics: per category, `description`, `models`, and `thinkingLevel` are
+merged (override wins per field); top-level `question`, `instructions`,
+`fallback`, and `confidenceThreshold` are replaced. Unknown categories are
+added. `loadCriteria()` validates every merged `thinkingLevel` against
+`THINKING_LEVELS` inside its existing `try`, so an invalid value is reported
+through the same `failed to parse <path>` wrapper as a JSON syntax error.
+Keep `mergeCriteria()`, `THINKING_LEVELS`, and `src/criteria.schema.json` in
+sync when adding fields.
 
 The model ids in `config/default-criteria.json` are real entries from Pi's
 built-in registry — the extension warns at session start if none of them
@@ -112,10 +137,20 @@ resolve. If you change them, keep them plausible and update the README table.
 
 ## Gotchas
 
-- `pi.setModel()` **persists** the choice as Pi's default model. That is why
-  `agent_end` restores the pre-run model — and why restore is skipped when
-  the user manually changed models mid-run (detected by comparing
-  `ctx.model` to the routed model). Don't drop either guard.
+- `pi.setModel()` **persists** the choice as Pi's default model, and
+  `pi.setThinkingLevel()` persists the level the same way. That is why
+  `agent_end` restores both pre-run values — and why each restore is skipped
+  when the user changed *that* thing mid-run: model by comparing `ctx.model`
+  to `routedModel`, level by comparing `pi.getThinkingLevel()` to the value
+  read back when it was applied. Don't drop any of these guards.
+- **Restore the model first, then the thinking level.** `setModel()`
+  re-clamps thinking as a side effect, so a level restored before the model
+  switch gets overwritten.
+- Known limitation (pre-existing, not a regression): if routing changes the
+  model and a level the intermediate model can't represent gets clamped
+  (`xhigh` → `high`), restoring the original model cannot bring `xhigh` back —
+  pi's `setModel()` clamping has no inverse. Fixing it would mean snapshotting
+  `getThinkingLevel()` before the model switch.
 - The TypeSafe provider is registered as credential-only (no models/baseUrl).
   It exists so the `"typesafe"` slot in Pi's auth storage is reachable via
   `/login` and `/logout`. Don't "fix" it by adding models.
