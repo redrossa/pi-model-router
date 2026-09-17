@@ -56,8 +56,8 @@ export interface ResolvedKey {
 }
 
 /**
- * Resolve the TypeSafe API key. Precedence: key stored via /router:login
- * (pi auth storage) → TYPESAFE_API_KEY env var → none.
+ * Resolve the TypeSafe API key. Precedence: key stored via pi's /login
+ * (auth storage) → TYPESAFE_API_KEY env var → none.
  */
 export async function resolveTypesafeKey(ctx: ExtensionContext): Promise<ResolvedKey | undefined> {
   const stored = await ctx.modelRegistry.getApiKeyForProvider(TYPESAFE_PROVIDER_ID);
@@ -78,7 +78,7 @@ export default function piModelRouter(pi: ExtensionAPI) {
   /**
    * Re-resolve the TypeSafe key and (re)build the Jev client only when the
    * key actually changed. Cheap (in-memory lookups), so it is called at the
-   * start of every run — this is what makes /router:login, /logout and env
+   * start of every run — this is what makes pi's /login, /logout and env
    * changes take effect without a reload.
    */
   async function syncJev(ctx: ExtensionContext): Promise<void> {
@@ -91,14 +91,16 @@ export default function piModelRouter(pi: ExtensionAPI) {
   }
 
   function describeKeySource(): string {
-    if (!jev) return "disabled (no key — run /router:login or set TYPESAFE_API_KEY)";
+    if (!jev) return 'disabled (no key — run /login and pick "TypeSafe (pi-model-router)", or set TYPESAFE_API_KEY)';
     return keySource === "stored"
-      ? "configured (key from pi auth storage via /router:login)"
+      ? "configured (key from pi auth storage via /login)"
       : "configured (key from TYPESAFE_API_KEY env var)";
   }
 
-  // Credential-only provider: gives the auth.json entry a display name in
-  // /logout. No models/baseUrl → never appears in /login or /model.
+  // Credential-only provider (no models/baseUrl). Registering it is what makes
+  // the "typesafe" slot in ~/.pi/agent/auth.json reachable: pi's /login lists it
+  // under this name with a generic "Enter API key" prompt, /logout can remove it,
+  // and modelRegistry.getApiKeyForProvider("typesafe") resolves the stored key.
   pi.registerProvider(TYPESAFE_PROVIDER_ID, { name: "TypeSafe (pi-model-router)" });
 
   /** Model that was active before this run's routing switched it; restored on agent_end. */
@@ -122,7 +124,7 @@ export default function piModelRouter(pi: ExtensionAPI) {
     await syncJev(ctx);
     if (!jev && criteria) {
       ctx.ui.notify(
-        `pi-model-router: no TypeSafe API key — run /router:login (or set TYPESAFE_API_KEY) to enable routing; ` +
+        `pi-model-router: no TypeSafe API key — run /login and pick "TypeSafe (pi-model-router)" (or set TYPESAFE_API_KEY) to enable routing; ` +
           `every run falls back to "${criteria.fallback.category}".`,
         "warning",
       );
@@ -228,49 +230,7 @@ export default function piModelRouter(pi: ExtensionAPI) {
           `  fallback category: ${criteria.fallback.category}\n` +
           `  categories (✓ = logged in):\n${categories}\n` +
           `Use "/router test <prompt>" to see how a prompt would route, "/router reload" to re-read config. ` +
-          `Use "/router:login" to store your TypeSafe key.`,
-        "info",
-      );
-    },
-  });
-
-  pi.registerCommand("router:login", {
-    description: "Store your TypeSafe (Jev) API key in pi's credential storage (~/.pi/agent/auth.json)",
-    handler: async (args, ctx) => {
-      if (args.trim()) {
-        ctx.ui.notify(
-          "pi-model-router: for safety the key is entered in a prompt, not as a command argument — run /router:login with no arguments.",
-          "warning",
-        );
-        return;
-      }
-      if (!ctx.hasUI) {
-        ctx.ui.notify(
-          "pi-model-router: /router:login needs an interactive UI — set TYPESAFE_API_KEY in this mode instead.",
-          "error",
-        );
-        return;
-      }
-      const existing = ctx.modelRegistry.authStorage.get(TYPESAFE_PROVIDER_ID);
-      const title = existing
-        ? "TypeSafe API key (replaces the currently stored key)"
-        : "TypeSafe API key (get one at https://typesafe.ai)";
-      const entered = await ctx.ui.input(title, "sk-...");
-      if (entered === undefined) {
-        ctx.ui.notify("pi-model-router: login cancelled — nothing stored.", "info");
-        return;
-      }
-      const key = entered.trim();
-      if (!key) {
-        ctx.ui.notify("pi-model-router: API key cannot be empty — nothing stored.", "error");
-        return;
-      }
-      // Same call pi's own "/login → Use an API key" flow makes.
-      ctx.modelRegistry.authStorage.set(TYPESAFE_PROVIDER_ID, { type: "api_key", key });
-      await syncJev(ctx);
-      const envNote = process.env.TYPESAFE_API_KEY ? " (takes precedence over TYPESAFE_API_KEY)" : "";
-      ctx.ui.notify(
-        `pi-model-router: TypeSafe API key saved to pi auth storage${envNote}. Routing is enabled; remove it later with /logout.`,
+          `Use "/login" and pick "TypeSafe (pi-model-router)" to store your TypeSafe key.`,
         "info",
       );
     },

@@ -30,6 +30,7 @@ interface Harness {
   auth: Map<string, FakeCredential>;
   inputCalls: Array<{ title: string; placeholder: string | undefined }>;
   commands: Map<string, CommandHandler>;
+  registerProviderCalls: Array<{ id: string; config: unknown }>;
   setCurrentModel(model: FakeModel): void;
   currentModel(): FakeModel;
 }
@@ -60,6 +61,7 @@ function makeHarness(opts: HarnessOptions): Harness {
   const inputCalls: Array<{ title: string; placeholder: string | undefined }> = [];
   const inputResponses = [...(opts.inputResponses ?? [])];
   const commands = new Map<string, CommandHandler>();
+  const registerProviderCalls: Array<{ id: string; config: unknown }> = [];
 
   const ctx = {
     cwd: process.cwd(),
@@ -70,12 +72,6 @@ function makeHarness(opts: HarnessOptions): Harness {
     modelRegistry: {
       getAvailable: () => opts.available,
       getApiKeyForProvider: async (provider: string) => auth.get(provider)?.key,
-      authStorage: {
-        get: (provider: string) => auth.get(provider),
-        set: (provider: string, credential: FakeCredential) => {
-          auth.set(provider, credential);
-        },
-      },
     },
     ui: {
       notify: (message: string, type?: string) => {
@@ -104,7 +100,9 @@ function makeHarness(opts: HarnessOptions): Harness {
     registerCommand: (name: string, options: { handler: CommandHandler }) => {
       commands.set(name, options.handler);
     },
-    registerProvider: () => {},
+    registerProvider: (id: string, config: unknown) => {
+      registerProviderCalls.push({ id, config });
+    },
   };
 
   piModelRouter(pi as unknown as ExtensionAPI);
@@ -126,6 +124,7 @@ function makeHarness(opts: HarnessOptions): Harness {
     auth,
     inputCalls,
     commands,
+    registerProviderCalls,
     setCurrentModel(model) {
       current = model;
     },
@@ -143,6 +142,13 @@ const BEFORE_AGENT_START = {
   systemPromptOptions: {},
 };
 const AGENT_END = { type: "agent_end", messages: [] };
+
+test("registers the typesafe credential-only provider on load", () => {
+  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL });
+  assert.equal(h.registerProviderCalls.length, 1);
+  assert.equal(h.registerProviderCalls[0]?.id, "typesafe");
+  assert.deepEqual(h.registerProviderCalls[0]?.config, { name: "TypeSafe (pi-model-router)" });
+});
 
 test("before_agent_start switches to the first available fallback model", async () => {
   const h = makeHarness({
@@ -276,8 +282,8 @@ test("no key anywhere: warns on session_start and never calls fetch", async () =
   const fetchStub = stubFetch();
   try {
     await h.fire("session_start", SESSION_START);
-    const warning = h.notifications.find((n) => n.type === "warning" && n.message.includes("/router:login"));
-    assert.ok(warning, `expected a warning mentioning /router:login, got: ${JSON.stringify(h.notifications)}`);
+    const warning = h.notifications.find((n) => n.type === "warning" && n.message.includes("/login"));
+    assert.ok(warning, `expected a warning mentioning /login, got: ${JSON.stringify(h.notifications)}`);
     await h.fire("before_agent_start", BEFORE_AGENT_START);
     assert.equal(fetchStub.calls.length, 0);
   } finally {
@@ -330,75 +336,6 @@ test("stored key takes precedence over the env var", async () => {
     fetchStub.restore();
     delete process.env.TYPESAFE_API_KEY;
   }
-});
-
-test("/router:login stores the trimmed key and takes effect immediately", async () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL, inputResponses: ["  sk-new  "] });
-  const fetchStub = stubFetch();
-  try {
-    await h.fire("session_start", SESSION_START);
-    await h.runCommand("router:login", "");
-    assert.deepEqual(h.auth.get("typesafe"), { type: "api_key", key: "sk-new" });
-    assert.ok(
-      h.notifications.some((n) => n.type === "info" && n.message.includes("saved")),
-      `expected a "saved" info notification, got: ${JSON.stringify(h.notifications)}`,
-    );
-    await h.fire("before_agent_start", BEFORE_AGENT_START);
-    assert.equal(fetchStub.calls.length, 1);
-    assert.equal(fetchStub.calls[0]?.authorization, "Bearer sk-new");
-  } finally {
-    fetchStub.restore();
-  }
-});
-
-test("re-running /router:login overwrites the stored key", async () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL, inputResponses: ["sk-1", "sk-2"] });
-  await h.runCommand("router:login", "");
-  await h.runCommand("router:login", "");
-  assert.equal(h.auth.get("typesafe")?.key, "sk-2");
-  assert.ok(h.inputCalls[1]?.title.includes("replaces"), `got title: ${h.inputCalls[1]?.title}`);
-});
-
-test("cancelled /router:login stores nothing", async () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL, inputResponses: [undefined] });
-  await h.runCommand("router:login", "");
-  assert.equal(h.auth.has("typesafe"), false);
-  assert.ok(
-    h.notifications.some((n) => n.type === "info" && n.message.includes("cancelled")),
-    `expected a "cancelled" info notification, got: ${JSON.stringify(h.notifications)}`,
-  );
-});
-
-test("/router:login rejects an empty/whitespace key", async () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL, inputResponses: ["   "] });
-  await h.runCommand("router:login", "");
-  assert.equal(h.auth.has("typesafe"), false);
-  assert.ok(
-    h.notifications.some((n) => n.type === "error"),
-    `expected an error notification, got: ${JSON.stringify(h.notifications)}`,
-  );
-});
-
-test("/router:login requires an interactive UI", async () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL, hasUI: false });
-  await h.runCommand("router:login", "");
-  assert.equal(h.auth.has("typesafe"), false);
-  assert.equal(h.inputCalls.length, 0);
-  assert.ok(
-    h.notifications.some((n) => n.type === "error" && n.message.includes("TYPESAFE_API_KEY")),
-    `expected an error mentioning TYPESAFE_API_KEY, got: ${JSON.stringify(h.notifications)}`,
-  );
-});
-
-test("/router:login rejects a key passed as an argument", async () => {
-  const h = makeHarness({ available: [], initialModel: FAKE_INITIAL });
-  await h.runCommand("router:login", "sk-leak");
-  assert.equal(h.auth.has("typesafe"), false);
-  assert.equal(h.inputCalls.length, 0);
-  assert.ok(
-    h.notifications.some((n) => n.type === "warning"),
-    `expected a warning notification, got: ${JSON.stringify(h.notifications)}`,
-  );
 });
 
 test("key removed after session_start: no fetch on before_agent_start", async () => {
