@@ -4,5 +4,5 @@ node_modules/
 .DS_Store
 dist/
 
-# Local/personal pi config
-.pi/pi-model-router.json
+# Local pi state (config, agents, ...)
+.pi/
