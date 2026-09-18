@@ -63,15 +63,23 @@ test("caps output at the most recent MAX_CONTEXT_MESSAGES in chronological order
     msgEntry("assistant", "msg4"),
     msgEntry("user", "msg5"),
     msgEntry("assistant", "msg6"),
+    msgEntry("user", "msg7"),
+    msgEntry("assistant", "msg8"),
+    msgEntry("user", "msg9"),
+    msgEntry("assistant", "msg10"),
   ];
 
   const out = extractRecentContext(branch);
-  assert.equal(MAX_CONTEXT_MESSAGES, 4);
+  assert.equal(MAX_CONTEXT_MESSAGES, 8);
   assert.deepEqual(out, [
     { role: "user", text: "msg3" },
     { role: "assistant", text: "msg4" },
     { role: "user", text: "msg5" },
     { role: "assistant", text: "msg6" },
+    { role: "user", text: "msg7" },
+    { role: "assistant", text: "msg8" },
+    { role: "user", text: "msg9" },
+    { role: "assistant", text: "msg10" },
   ]);
 });
 
@@ -103,20 +111,30 @@ test("text exactly at the character cap is not truncated", () => {
 test("accepts plain-string content and skips whitespace-only messages without counting them toward the cap", () => {
   const branch: SessionEntry[] = [
     msgEntry("user", "one"),
-    msgEntry("assistant", "   \n  "),
-    msgEntry("user", "two"),
-    msgEntry("assistant", ""),
+    msgEntry("assistant", "two"),
     msgEntry("user", "three"),
+    msgEntry("user", "   \n  "),
     msgEntry("assistant", "four"),
     msgEntry("user", "five"),
+    msgEntry("assistant", "six"),
+    msgEntry("assistant", ""),
+    msgEntry("user", "seven"),
+    msgEntry("assistant", "eight"),
+    msgEntry("user", "nine"),
+    msgEntry("assistant", "ten"),
   ];
 
   const out = extractRecentContext(branch);
-  // Five valid messages, but only the last MAX_CONTEXT_MESSAGES=4 are kept.
+  // Ten valid messages, but only the last MAX_CONTEXT_MESSAGES=8 are kept;
+  // the whitespace-only entries are skipped and don't count toward the cap.
   assert.deepEqual(out, [
-    { role: "user", text: "two" },
     { role: "user", text: "three" },
     { role: "assistant", text: "four" },
     { role: "user", text: "five" },
+    { role: "assistant", text: "six" },
+    { role: "user", text: "seven" },
+    { role: "assistant", text: "eight" },
+    { role: "user", text: "nine" },
+    { role: "assistant", text: "ten" },
   ]);
 });

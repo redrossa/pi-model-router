@@ -32,11 +32,11 @@ switch by hand.
    are available, you get a one-time warning at session start and the
    extension leaves your current model alone (no Jev call is made).
 
-Jev also receives the last ~2 turns of conversation (the previous user
-message and the assistant's reply/question) alongside the new prompt, so a
+Jev also receives the last ~4 turns of conversation (recent user messages
+and the assistant's replies/questions) alongside the new prompt, so a
 short reply like "yes" or "option 2" is routed by what it's actually
 replying to rather than classified in isolation. The context payload is
-bounded — at most the last 4 user/assistant messages, each truncated to
+bounded — at most the last 8 user/assistant messages, each truncated to
 1500 characters — and only the new prompt is classified.
 
 ## Setup

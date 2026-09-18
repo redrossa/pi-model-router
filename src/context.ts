@@ -1,8 +1,8 @@
 import type { SessionEntry } from "@mariozechner/pi-coding-agent";
 import type { ConversationTurn } from "./types.js";
 
-/** Max prior user/assistant messages sent to Jev (≈ two turns: the previous ask + the assistant's reply/question). */
-export const MAX_CONTEXT_MESSAGES = 4;
+/** Max prior user/assistant messages sent to Jev (≈ four turns, enough to keep the assistant's original question through a few rounds of clarifying back-and-forth). */
+export const MAX_CONTEXT_MESSAGES = 8;
 /** Per-message character cap. Assistant text keeps its tail (the question is at the end); user text keeps its head. */
 export const MAX_MESSAGE_CHARS = 1500;
 
