@@ -39,6 +39,32 @@ replying to rather than classified in isolation. The context payload is
 bounded — at most the last 8 user/assistant messages, each truncated to
 1500 characters — and only the new prompt is classified.
 
+## Install
+
+Requires Pi and Node >= 20. Install the package into Pi:
+
+```bash
+pi install npm:@redrossa/pi-model-router
+```
+
+Or straight from git, which tracks `main`:
+
+```bash
+pi install git:github.com/redrossa/pi-model-router
+```
+
+`pi install` records the package in your global Pi settings
+(`~/.pi/agent/settings.json`). Pass `-l` to write to project settings
+(`.pi/settings.json`) instead, which can be committed so teammates pick the
+package up automatically. To try it for a single run without installing:
+
+```bash
+pi -e npm:@redrossa/pi-model-router
+```
+
+Remove it again with `pi remove npm:@redrossa/pi-model-router`; `pi list` shows
+what is installed and `pi update` updates non-pinned packages.
+
 ## Setup
 
 Start Pi, then run `/login`, choose **"TypeSafe (pi-model-router)"** from the
@@ -57,11 +83,7 @@ export TYPESAFE_API_KEY=sk-...   # get one at https://typesafe.ai
 
 A key stored via `/login` takes precedence over `TYPESAFE_API_KEY`.
 
-Drop this repo (or its published package) into your Pi extensions path and
-it auto-loads. Pi discovers extensions placed under
-`~/.pi/agent/extensions/` (global) or `.pi/extensions/` (project-local);
-for a quick test without installing, load it directly with
-`pi -e ./src/extension.ts`. A default criteria map ships in
+A default criteria map ships in
 `config/default-criteria.json`. Its model lists reference models from pi's
 **built-in** registry for the `anthropic`, `openai-codex` and `deepseek`
 providers, so if you're logged into any of those it works out of the box:

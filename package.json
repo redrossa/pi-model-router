@@ -1,24 +1,54 @@
 {
-  "name": "pi-model-router",
+  "name": "@redrossa/pi-model-router",
   "version": "0.1.0",
   "description": "Pi extension that classifies each prompt with TypeSafe's Jev and routes it to the model you're logged into that best fits the task.",
   "type": "module",
-  "private": true,
   "license": "MIT",
+  "author": "Reno Raksi",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/redrossa/pi-model-router.git"
+  },
+  "homepage": "https://github.com/redrossa/pi-model-router#readme",
+  "bugs": {
+    "url": "https://github.com/redrossa/pi-model-router/issues"
+  },
   "main": "src/extension.ts",
+  "files": [
+    "src/",
+    "config/",
+    "examples/",
+    "README.md",
+    "LICENSE"
+  ],
   "pi": {
     "extensions": ["src/extension.ts"]
   },
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "model-router",
+    "typesafe",
+    "jev",
+    "llm",
+    "ai"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/**/*.test.ts",
     "lint": "tsc --noEmit"
   },
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*"
+  },
   "devDependencies": {
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
-    "@sinclair/typebox": "^0.32.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   },
