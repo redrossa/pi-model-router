@@ -1,9 +1,10 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { loadCriteria } from "./config.js";
+import { extractRecentContext } from "./context.js";
 import { JevClient } from "./jev.js";
 import { hasAnyAvailableModel, pickModel } from "./router.js";
-import type { RouteDecision, RouterCriteria, RouterThinkingLevel } from "./types.js";
+import type { ConversationTurn, RouteDecision, RouterCriteria, RouterThinkingLevel } from "./types.js";
 
 /**
  * pi-model-router
@@ -17,8 +18,10 @@ import type { RouteDecision, RouterCriteria, RouterThinkingLevel } from "./types
  * the active model with `pi.setModel()` before the agent loop starts. In the
  * same step we also apply the winning category's configured thinking/effort
  * level with `pi.setThinkingLevel()` (clamped by pi to what the routed model
- * supports). Pi's `setModel()`/`setThinkingLevel()` also persist the choice as
- * the new default in settings, so on `agent_end` we switch both back to the
+ * supports). Classification includes the last few user/assistant messages from
+ * the session branch so short replies ("yes", "option 2") are classified by
+ * what they're replying to. Pi's `setModel()`/`setThinkingLevel()` also persist
+ * the choice as the new default in settings, so on `agent_end` we switch both back to the
  * model and thinking level that were active before routing — unless the user
  * changed them manually during the run.
  */
@@ -40,6 +43,15 @@ function resolveModel(ctx: ExtensionContext, ref: string): Model<Api> | undefine
 
 function makeIsAvailable(ctx: ExtensionContext): (ref: string) => boolean {
   return (ref: string) => resolveModel(ctx, ref) !== undefined;
+}
+
+/** Recent user/assistant messages from the current session branch. Never throws — context is best-effort. */
+function recentContextOf(ctx: ExtensionContext): ConversationTurn[] {
+  try {
+    return extractRecentContext(ctx.sessionManager.getBranch());
+  } catch {
+    return [];
+  }
 }
 
 function sameModel(a: Model<Api> | undefined, b: Model<Api> | undefined): boolean {
@@ -167,7 +179,7 @@ export default function piModelRouter(pi: ExtensionAPI) {
 
     let decision: RouteDecision;
     try {
-      decision = await pickModel(event.prompt, { jev, criteria, isAvailable });
+      decision = await pickModel(event.prompt, { jev, criteria, isAvailable, recentContext: recentContextOf(ctx) });
     } catch (err) {
       ctx.ui.notify(`pi-model-router: ${(err as Error).message} — using current model.`, "warning");
       return;
@@ -248,7 +260,7 @@ export default function piModelRouter(pi: ExtensionAPI) {
         }
         await syncJev(ctx);
         try {
-          const decision = await pickModel(prompt, { jev, criteria, isAvailable });
+          const decision = await pickModel(prompt, { jev, criteria, isAvailable, recentContext: recentContextOf(ctx) });
           ctx.ui.notify(
             `category=${decision.category} model=${decision.model} confidence=${decision.confidence.toFixed(2)} ` +
               `source=${decision.source}${decision.error ? ` (${decision.error})` : ""}` +

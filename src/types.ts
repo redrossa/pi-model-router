@@ -36,6 +36,12 @@ export interface RouterCriteria {
   confidenceThreshold?: number | undefined;
 }
 
+/** One prior conversation message handed to Jev as context for classifying the new prompt. */
+export interface ConversationTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+
 export interface JevChoiceAnswer {
   type: "choice";
   choice: string;

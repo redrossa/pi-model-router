@@ -1,5 +1,5 @@
 import type { JevClient } from "./jev.js";
-import type { RouteDecision, RouterCriteria } from "./types.js";
+import type { ConversationTurn, RouteDecision, RouterCriteria } from "./types.js";
 
 /**
  * Picks the first model in a category's priority list that the caller says
@@ -22,6 +22,7 @@ export interface PickModelDeps {
   jev: JevClient | null;
   criteria: RouterCriteria;
   isAvailable: (modelId: string) => boolean;
+  recentContext?: ConversationTurn[] | undefined;
 }
 
 /**
@@ -33,7 +34,7 @@ export interface PickModelDeps {
  * fallback category has nothing available.
  */
 export async function pickModel(prompt: string, deps: PickModelDeps): Promise<RouteDecision> {
-  const { jev, criteria, isAvailable } = deps;
+  const { jev, criteria, isAvailable, recentContext } = deps;
   const threshold = criteria.confidenceThreshold ?? 0.34;
 
   const fallbackDecision = (reason: string, probabilities?: Record<string, number>): RouteDecision => {
@@ -69,7 +70,7 @@ export async function pickModel(prompt: string, deps: PickModelDeps): Promise<Ro
   let confidence: number;
   let probabilities: Record<string, number> | undefined;
   try {
-    const answer = await jev.classify(prompt, criteria);
+    const answer = await jev.classify(prompt, criteria, recentContext);
     choice = answer.choice;
     confidence = answer.confidence;
     probabilities = answer.probabilities;

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import piModelRouter from "../src/extension.js";
+import { CONTEXT_HINT } from "../src/jev.js";
 
 // Keep the jev-disabled fallback path deterministic regardless of the
 // environment the tests happen to run in.
@@ -63,6 +64,8 @@ interface HarnessOptions {
   inputResponses?: (string | undefined)[];
   userConfig?: Record<string, unknown>;
   cwd?: string;
+  sessionEntries?: unknown[];
+  sessionManagerThrows?: boolean;
 }
 
 /**
@@ -101,6 +104,12 @@ function makeHarness(opts: HarnessOptions): Harness {
     modelRegistry: {
       getAvailable: () => opts.available,
       getApiKeyForProvider: async (provider: string) => auth.get(provider)?.key,
+    },
+    sessionManager: {
+      getBranch: () => {
+        if (opts.sessionManagerThrows) throw new Error("boom");
+        return opts.sessionEntries ?? [];
+      },
     },
     ui: {
       notify: (message: string, type?: string) => {
@@ -180,6 +189,11 @@ const BEFORE_AGENT_START = {
   systemPromptOptions: {},
 };
 const AGENT_END = { type: "agent_end", messages: [] };
+
+/** Minimal fake `SessionMessageEntry` as consumed by `extractRecentContext`. */
+function ctxMsg(role: string, content: unknown): unknown {
+  return { type: "message", id: "x", parentId: null, timestamp: "", message: { role, content } };
+}
 
 /** A resolvable model from the shipped `coding` list (used to drive routing). */
 const OPUS = { provider: "anthropic", id: "claude-opus-5" };
@@ -416,15 +430,16 @@ test("notifies and keeps current model when nothing is available", async () => {
  * `restore()` in a `finally` block.
  */
 function stubFetch(answer?: { choice: string; confidence: number }): {
-  calls: Array<{ url: string; authorization: string | undefined }>;
+  calls: Array<{ url: string; authorization: string | undefined; body: any }>;
   restore(): void;
 } {
   const original = globalThis.fetch;
-  const calls: Array<{ url: string; authorization: string | undefined }> = [];
+  const calls: Array<{ url: string; authorization: string | undefined; body: any }> = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     calls.push({
       url: typeof input === "string" ? input : String(input),
       authorization: (init?.headers as Record<string, string> | undefined)?.authorization,
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
     });
     const body = JSON.stringify({
       answers: {
@@ -595,4 +610,75 @@ test("user override in <cwd>/.pi/pi-model-router.json is honoured", async () => 
 
   assert.equal(h.setModelCalls.length, 1);
   assert.equal(h.setModelCalls[0]?.id, "my-model");
+});
+
+test("sends recent conversation context to Jev", async () => {
+  const h = makeHarness({
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
+    storedKey: "sk-x",
+    sessionEntries: [
+      ctxMsg("user", "refactor the auth module"),
+      ctxMsg("assistant", "Should I refactor it fully or just patch it?"),
+    ],
+  });
+  const fetchStub = stubFetch();
+  try {
+    await h.fire("session_start", SESSION_START);
+    await h.fire("before_agent_start", { ...BEFORE_AGENT_START, prompt: "yes" });
+
+    assert.equal(fetchStub.calls.length, 1);
+    const body = fetchStub.calls[0]?.body;
+    assert.equal(body.state.prompt, "yes");
+    assert.deepEqual(body.state.recentContext, [
+      { role: "user", text: "refactor the auth module" },
+      { role: "assistant", text: "Should I refactor it fully or just patch it?" },
+    ]);
+    assert.ok(
+      body.questions.task_category.instructions.endsWith(CONTEXT_HINT),
+      `expected the context hint to be appended, got: ${body.questions.task_category.instructions}`,
+    );
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+test("fresh session with no history sends no context", async () => {
+  const h = makeHarness({
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
+    storedKey: "sk-x",
+    sessionEntries: [],
+  });
+  const fetchStub = stubFetch();
+  try {
+    await h.fire("session_start", SESSION_START);
+    await h.fire("before_agent_start", BEFORE_AGENT_START); // prompt: "hi"
+
+    const body = fetchStub.calls[0]?.body;
+    assert.deepEqual(body.state, { prompt: "hi" });
+    assert.ok(!("recentContext" in body.state), "recentContext must not be present at all");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+test("sessionManager throwing does not break routing", async () => {
+  const h = makeHarness({
+    available: [OPUS],
+    initialModel: INITIAL_MODEL,
+    storedKey: "sk-x",
+    sessionManagerThrows: true,
+  });
+  const fetchStub = stubFetch();
+  try {
+    await h.fire("session_start", SESSION_START);
+    await h.fire("before_agent_start", BEFORE_AGENT_START);
+
+    assert.equal(h.setModelCalls.length, 1);
+    const body = fetchStub.calls[0]?.body;
+    assert.ok(!("recentContext" in body.state), "context extraction failed, so no recentContext key");
+  } finally {
+    fetchStub.restore();
+  }
 });

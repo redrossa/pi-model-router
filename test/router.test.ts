@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { hasAnyAvailableModel, pickModel } from "../src/router.js";
 import type { JevClient } from "../src/jev.js";
-import type { JevChoiceAnswer, RouterCriteria } from "../src/types.js";
+import type { JevChoiceAnswer, RouterCriteria, ConversationTurn } from "../src/types.js";
 
 const FIXTURE: RouterCriteria = {
   question: "task_category",
@@ -16,13 +16,16 @@ const FIXTURE: RouterCriteria = {
   confidenceThreshold: 0.34,
 };
 
-function fakeJev(answer: JevChoiceAnswer | Error): JevClient {
+function fakeJev(answer: JevChoiceAnswer | Error): JevClient & { calls: unknown[][] } {
+  const calls: unknown[][] = [];
   return {
-    classify: async () => {
+    calls,
+    classify: async (prompt: string, criteria: RouterCriteria, recentContext?: ConversationTurn[] | undefined) => {
+      calls.push([prompt, criteria, recentContext]);
       if (answer instanceof Error) throw answer;
       return answer;
     },
-  } as unknown as JevClient;
+  } as unknown as JevClient & { calls: unknown[][] };
 }
 
 test("routes to the winning category's first available model", async () => {
@@ -103,4 +106,25 @@ test("hasAnyAvailableModel is false when nothing resolves", () => {
 
 test("hasAnyAvailableModel is true when any category resolves", () => {
   assert.equal(hasAnyAvailableModel(FIXTURE, (id) => id === "terra"), true);
+});
+
+test("passes recentContext through to jev.classify", async () => {
+  const criteria = FIXTURE;
+  const recentContext: ConversationTurn[] = [{ role: "user", text: "ctx" }];
+  const jev = fakeJev({ type: "choice", choice: "coding", confidence: 0.9, probabilities: {} });
+
+  await pickModel("yes", { jev, criteria, isAvailable: () => true, recentContext });
+
+  assert.equal(jev.calls.length, 1);
+  assert.deepEqual(jev.calls[0]?.[2], recentContext);
+});
+
+test("passes undefined recentContext when omitted", async () => {
+  const criteria = FIXTURE;
+  const jev = fakeJev({ type: "choice", choice: "coding", confidence: 0.9, probabilities: {} });
+
+  await pickModel("yes", { jev, criteria, isAvailable: () => true });
+
+  assert.equal(jev.calls.length, 1);
+  assert.equal(jev.calls[0]?.[2], undefined);
 });

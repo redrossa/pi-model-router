@@ -32,6 +32,13 @@ switch by hand.
    are available, you get a one-time warning at session start and the
    extension leaves your current model alone (no Jev call is made).
 
+Jev also receives the last ~2 turns of conversation (the previous user
+message and the assistant's reply/question) alongside the new prompt, so a
+short reply like "yes" or "option 2" is routed by what it's actually
+replying to rather than classified in isolation. The context payload is
+bounded — at most the last 4 user/assistant messages, each truncated to
+1500 characters — and only the new prompt is classified.
+
 ## Setup
 
 Start Pi, then run `/login`, choose **"TypeSafe (pi-model-router)"** from the
@@ -110,6 +117,7 @@ enough.
 src/extension.ts   Pi extension entry point (hooks, commands)
 src/router.ts       classification → model selection + fallback logic
 src/jev.ts          TypeSafe Jev API client (Choice primitive)
+src/context.ts      recent-conversation extraction for classifying short replies
 src/config.ts       default + user criteria JSON loading/merging
 config/default-criteria.json   shipped default criteria
 examples/           example user override file

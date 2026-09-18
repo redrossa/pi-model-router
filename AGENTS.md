@@ -27,12 +27,13 @@ linter beyond `tsc`. Node >= 20.
 |---|---|
 | `src/extension.ts` | Pi wiring: hooks (`session_start`, `before_agent_start`, `agent_end`), provider registration, `/router` command, model + thinking-level switch/restore. Side effects live here. |
 | `src/router.ts` | `pickModel()` — the routing decision. Pure: all I/O is injected via deps. Model-only; knows nothing about thinking levels. |
-| `src/jev.ts` | `JevClient` — HTTP call to Jev's `Choice` primitive. |
+| `src/jev.ts` | `JevClient` — HTTP call to Jev's `Choice` primitive, with an optional `recentContext` param and the `CONTEXT_HINT` instructions suffix. |
+| `src/context.ts` | `extractRecentContext()` — pure extraction of the last few user/assistant text messages from `ctx.sessionManager.getBranch()`, sent to Jev as `state.recentContext`. |
 | `src/config.ts` | Loads shipped defaults + user override, deep-merges, validates `thinkingLevel`. |
 | `src/types.ts` | `RouterCriteria`, `RouterThinkingLevel`/`THINKING_LEVELS`, `RouteDecision`, etc. |
 | `config/default-criteria.json` | Shipped categories, thinking levels, and model lists. |
 | `src/criteria.schema.json` | JSON Schema for user override files. |
-| `test/` | `router.test.ts` (pure logic), `config.test.ts` (merge/lookup), `extension.test.ts` (fake ExtensionAPI harness). |
+| `test/` | `router.test.ts` (pure logic), `config.test.ts` (merge/lookup), `context.test.ts` (context extraction), `jev.test.ts` (request body), `extension.test.ts` (fake ExtensionAPI harness). |
 
 ## The fallback cascade — do not change its order
 
